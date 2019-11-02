@@ -1,0 +1,97 @@
+===  Open PySpark   (jars required) ====
+./bin/spark-shell --jars mongo-spark-connector_2.11-2.4.1.jar,mongo-java-driver-3.10.2.jar  \
+  --conf "spark.mongodb.input.uri=mongodb+srv://<username>:<password>@clusterspark-la6ky.mongodb.net/test.demo?readPreference=primaryPreferred" \
+  --conf "spark.mongodb.output.uri=mongodb+srv://<username>:<password>@clusterspark-la6ky.mongodb.net/test.demo"
+
+===  Create people RDD ====
+import com.mongodb.spark._
+import com.mongodb.spark.config._
+import org.bson.Document
+import java.util.Date
+
+val people = sc.parallelize((1 to 10).map(i => new Document()
+                                               .append("name", "someone " + i)
+                                               .append("age", 30 - i)
+                                               .append("registrationDate", new Date()) ) )
+                                               
+                                               
+===  Write RDD to MongoDB ====
+
+MongoSpark.save(people)
+
+===  Write RDD to MongoDB  with options ====
+
+val writeConfig = WriteConfig(Map( "maxBatchSize" -> "1024", "ordered" -> "false"), Some(WriteConfig(sc)))
+
+MongoSpark.save(people, writeConfig)
+
+===  Write RDD to MongoDB (timing) ====
+
+def time[R](block: => R): R = {
+    val t0 = System.nanoTime()
+    val result = block    // call-by-name
+    val t1 = System.nanoTime()
+    println("Elapsed time: " + ((t1 - t0) / (1000*1000))+ " ms")
+    result
+}
+
+time{ MongoSpark.save(people, writeConfig) }
+
+
+===  Convert RDD to DataFrame (not working ... TODO) ====
+
+import org.apache.spark.sql.{Row, SparkSession}
+import org.apache.spark.sql.types.{DoubleType, StringType, StructField, StructType}
+
+val peopleDF = spark.createDataFrame(people).toDF("name", "age", "registrationDate")
+
+===  Show Data ====
+
+println(people.count)
+
+println(people.first.toJson)
+
+people.take(5).foreach(println)
+
+
+
+===  Show Schema (not working ... TODO) ====
+
+sc (Spark Context)
+
+sc.getConf.getAll.foreach(println)
+
+
+===  Read data from MongoDB into a DataFrame in Spark ====
+
+val rdd = MongoSpark.load(sc)
+println(rdd.count)
+println(rdd.first.toJson)
+
+===  Read data from MongoDB into a DataFrame in Spark ====
+
+import com.mongodb.spark.config._
+val readConfig = ReadConfig(Map("collection" -> "demo", "readPreference.name" -> "secondaryPreferred"), Some(ReadConfig(sc)))
+val customRdd = MongoSpark.load(sc, readConfig)
+
+println(customRdd.count)
+println(customRdd.first.toJson)
+
+======= Read data using Aggregation framework  ====
+
+val aggregatedRdd = rdd.withPipeline(Seq(Document.parse("{ $match: { age : { $gt : 5 } } }")))
+println(aggregatedRdd.count)
+println(aggregatedRdd.first.toJson)
+
+===  Show number of partitions ====
+
+println("Number of partitions: %d".format(people.getNumPartitions))
+
+
+===  Show Partitioner ====
+println("Partitioner: %s".format(people.partitioner))
+
+===  Show number of records per partition ====
+
+people.mapPartitionsWithIndex{case (i,rows) => Iterator((i,rows.size))}.toDF("partition_number","number_of_records").show(10)
+
